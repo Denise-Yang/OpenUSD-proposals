@@ -2,15 +2,14 @@
 ## Image Plane Support for USD
 
 ## Contents
-- [Introduction](#introduction)
-- [High Level Anatomy of an Image Plane](#high-level-anatomy-of-an-image-plane)
-- [Pinhole Camera Diagram](#pinhole-camera-diagram)
-- [UsdGeomImagePlaneAPI Schema](#usdgeomimageplaneapi-schema)
+- [Background](#background)
+  - [Interchange](#interchange)
+  - [Optical System](#optical-system)
+- [Proposal](#proposal)
+  - [Why Separate Schemas?](#why-separate-schemas?)
   - [Properties](#properties)
-  - [API Methods](#api-methods)
 - [Hydra Implementation](#hydra-implementation)
 - [Alternative Implementation Strategies](#alternative-implementation-strategies)
-- [Use Cases](#use-cases)
 - [Open Questions](#open-questions)
 
 ## Background
@@ -20,12 +19,12 @@ The majority of work in VFX is centered around augmenting existing footage, so i
 Another feature that also has its utility in the VFX/animation space is being able to portray an image that's at an infinite distance and always in focus irrespective of whether the camera itself is focused at infinity. Instead of projecting an image onto a card in the scene, you can think of this as projecting an image onto the sensor itself pre-render; we are essentially filling the pixel sample values before rendering. We will denote this feature as an image plane. In a potential scene, the image plane would be the far-away castle that rests atop a hill as a backdrop and back plates would hold the vines and branches to "shoot" through.
 
 ### Interchange
-By adding support for this feature we expand the use of USD when interchanging with other software like [Maya](https://help.autodesk.com/view/MAYAUL/2025/ENU/?guid=GUID-E2490B87-087E-476A-9C1D-A917D009001A), [Blender](https://docs.blender.org/manual/en/latest/modeling/meshes/import_images_as_planes.html), [Renderman](https://rmanwiki-26.pixar.com/space/REN26/19661891/PxrImageDisplayFilter), and [Nuke](https://www.nukepedia.com/tools/gizmos/3d/imageplane3d/) ([another impl](https://www.nukepedia.com/tools/gizmos/3d/imageplane/)). In particular we are aware of interest in using USD with Composure (Unreal Engine's compositing plugin) that would require back plate support to do so. Our proposal will cover what capabilities these DCC's back plate equivalents provide and outline the differences compared with our back plates.
-## Optical System
+By adding support for this feature we expand the use of USD when interchanging with other software like [Maya](https://help.autodesk.com/view/MAYAUL/2025/ENU/?guid=GUID-E2490B87-087E-476A-9C1D-A917D009001A), [Blender](https://docs.blender.org/manual/en/latest/modeling/meshes/import_images_as_planes.html), [Renderman](https://rmanwiki-26.pixar.com/space/REN26/19661891/PxrImageDisplayFilter), and [Nuke](https://www.nukepedia.com/tools/gizmos/3d/imageplane3d/) ([another impl](https://www.nukepedia.com/tools/gizmos/3d/imageplane/)). In particular we are aware of interest in using USD with [Composure](https://dev.epicgames.com/documentation/en-us/unreal-engine/composure#plate) (Unreal Engine's compositing plugin) that would require back plate support to do so. Our proposal will cover what capabilities these DCC's back plate equivalents provide and outline the differences compared with our back plates.
 
+### Optical System
 Before we delve into the schema we're proposing, we'll give a brief overview of our camera model to better understand how transformations to these planes will affect the final image and compare it to the current model of usdGeom camera.
-(from https://cookeoptics.com/i-technology/ > "Cooke Camera Lens Definitions for VFX" > CG Camera diagram 2.1.)
-![](pinhole-camera-diagram.png)
+(Side by side comparision of our thin lens opticcal system versus the pinhole model our system currently uses)
+![](opticsSys.png)
 Fig 1. back plate/image plane API camera model (left); our system's camera model (right)
 
 Let us begin by defining a few terms:
@@ -76,7 +75,8 @@ These alternative solutions were primarily to reduce the redundancy among the tw
 | **bool mute**  | N/A  | Toggles the visibility of the image plane. The fallback value is true.  | 
 
 1. Transformation matrices will be applied in the order of translate•rotate•scale•v,where v is the center/origin of the back plate.
-2. Lift, gain, and gamma are applied in the order of (x*(gain-lift)+lift)^(1/gamma).
+2. Lift, gain, and gamma are applied in the order of (x*(gain-lift)+lift)^(1/gamma).  
+
 Other considerations that will not be included:
 
 - **Measuring width/height as an aspect ratio**: we also considered measuring the dimensions as a ratio determined by the back plate depth in the scene such that the default back plate is "fullscreen"; however this representation was unintuitive given our current model. By defining the intrinsic origin of the camera at the image plane, the depth would need to account for the offset to the frustum apex before computing the final depth. We considered adding an additional depth attribute that could specify the distance of the back plate from the apex of the frustum, and all other transformations would be applied after the shift; however this is a bit redundant given that we already have a translation transformation so to provide a more straightforward set of properties we have decided to use the model presented above.
@@ -87,19 +87,19 @@ Other considerations that will not be included:
 - **Relation to UsdRenderPass**: While we currently will not be interacting with additional render passes, having individual bools to toggle whether or not image planes are visible and back plates are visible, can be useful for render pass workflows. For instance, a background render pass would want the image plane visible but not the back plates; whereas other render passes may want differently.
 
 #### API Methods
-- CreateImagePlane(imagePlaneName)
-- SetImagePlane*Attr(imagePlaneName, value)
-- GetImagePlane*Attr(imagePlaneName, attribute)
-- SetImagePlanes([])
-- GetImagePlanes()
+- CreateBackPlate(backPlateName)
+- SetBackPlate*Attr(backPlateName, value)
+- GetBackPlate*Attr(backPlateName, attribute)
+- SetBackPlates([])
+- GetBackPlates()
 
 #### A Minimum Usage Example:
 ```
 camera = stage.GetPrimAtPath('/world/cam')
-imagePlaneApi = UsdGeomImagePlaneAPI(camera)
-imagePlaneApi.CreateImagePlane("imagePlane1")
+backPlateApi = UsdGeomBackPlateAPI(camera)
+backPlateApi.CreateBackPlate("backPlate1")
 framesToImages = [(f, fileSequence.frameAt(i) for f in fileSequence.frames()]
-imagePlaneApi.SetImagePlaneImageAttr(framesToImages, "imagePlane1")
+imagePlaneApi.SetImagePlaneImageAttr(framesToImages, "backPlate1")
 ```
 ##### Which would generate this .usda:
 ```
@@ -119,32 +119,36 @@ def Xform "world" {
 ```
 
 ## DCC Interchange
+Here we list the image plane features of [Maya](https://help.autodesk.com/view/MAYAUL/2025/ENU/?guid=GUID-E2490B87-087E-476A-9C1D-A917D009001A), [Blender](https://docs.blender.org/manual/en/latest/modeling/meshes/import_images_as_planes.html), [Composure](https://dev.epicgames.com/documentation/en-us/unreal-engine/composure#plate), [Renderman](https://rmanwiki-26.pixar.com/space/REN26/19661891/PxrImageDisplayFilter), and [Nuke](https://www.nukepedia.com/tools/gizmos/3d/imageplane3d/) ([another impl](https://www.nukepedia.com/tools/gizmos/3d/imageplane/)) and call out the features that we will not support with this proposal. 
 
-
-| First Header  | Maya | Blender | Nuke | Composure | Renderman |
+| First Header  | Maya | Blender |
 | ------------- | ------------- | ------------- |
-| DCC Features  |  - color grading controls  -camera visibility modes  - alpha channels  - luminance  - various modes to fit the image plane onto the camera frame -  frame cropping and offsets
-- non-camera associated image planes  - supports images, animation, and media  |   |   |  |  |
-| Interchange with USD  | Content Cell  |   |   |  |  |
-## Hydra Implementation
-TODO: Flesh out and discuss with Hydra team.
+| DCC Features  |  - color grading controls - camera visibility modes  - alpha channels  - luminance  - various modes to fit the image plane onto the camera frame - frame cropping and offsets - non-camera associated image planes  - supports images, animation, and media  | v  |
+| Interchange with USD  | Content Cell  | vr  | 
+
+## Engineering Work
+
+
+### Hydra Integration
+
+- In order to integrate back plates in Hydra, such that it can be rendered in Usdview, we will be defining a filtering scene index to identify back plates in the scene and produce camera associated texture cards for the renderer to process. Scene filters exists as an intermediary step between HdSceneIndices and HdSceneIndexObservers that can accept scene updates and transform/modify those updates to the next filtering scene index or renderer. For our use cases, a part of these transformations can include any color/depth information updates.
+- Image planes on the other hand need to be incorporated after rendering. Generating and rearranging Hydra tasks is one option, however it would be complex and is not recommended since the HdTask interface for Hydra 2.0 is still being developed. Instead, one option would be to create a filtering scene index that converts the necessary data to composite the image plane into hydra prims and then the render index will use that data to apply the specified compositions in a render pass. Note that the exact solution is very render specific.
 
 Ideas:
 - Use UsdPreviewSurface textures in a way similar to GeomModel texture cards.
 - Do the compositing in an Hdx post task
 
+## Risk, Issues, and Caveats
+Out of Scope
+
+- **Projection painting**: i.e. enabling users to paint textures onto some geometry is used by ILM for their Mars/Commodore system and also frequently used in gaming as decals. While it would be useful to include this feature, it should be part of the shading system since the painted texture would need to be exported as a material or primvar that the shader node can consume. In our shading pipeline we associate cameras with the projection setup and part of the model build extracts the static xform and stamps it out as a primvar that the shader node can consume.
+- **Adding additional render passes**: in order to support image planes, we would need to apply its properties in a post-procesing stage which most likely entails specifying additional render passes in the renderer. It may be possible to create a scene index that wraps the properties that a render index can then detect and apply as a separate render pass; however this method would be very render specific and dependent. The other option is to hold off until more work has been done to improve HdTask's interface in Hydra 2.0 to allow us to generate additional Hydra tasks for an additional render pass.
+- **Full compositing graph**: while we do want to support interchange with Composure; this would also likely involve investigating how USD render passes can be used to achieve a similar affect to Composure's layer passes.
+- **Displaying media**: USD currently does not support media inputs although when that feature is available we will enable back plates and image planes to display media.
+
 ## Use Cases
 ### Hydra / Usdview
 It would be helpful to be able to view CG elements against a backdrop of the production plate when checking exported usd caches.
-
-### DCC Interchange
-Having a "UsdLux" style standard for Image Planes would be very useful when implementing importers and exporters for DCCs like Maya, Blender, Nuke, etc.
-
-### Photogrammetry
-Reasonably specific example:
-Load a mesh and array of cameras - provided by a company like Lidar Lounge - into Maya.
-Clean up / simplify the mesh and export as USD.
-Import into Mari, so as the cameras become projectors; with each having the path to an image plane's image, which can be projected onto the mesh.
 
 ## Alternative Implementation Strategies
 ### 1.) As a concrete prim type
@@ -172,35 +176,3 @@ Reference internal PR from Luma: https://github.com/LumaPictures/USD/pull/1
 #### Shortfalls:
 - Requires users to implement complex authoring code.
 - No explicit identity as an "Image Plane". This will make it hard to successfully roundtrip from DCCs to USD.
-
-## Appendix: "Fit" Strategy Discussion
-One of the key decisions for this schema is to come up with a universally acceptable way to describe how the
-image plane will be positioned in relation to the camera film back. We want something that will cover all use cases
-without being to burdensome to describe.
-
-In our discussions, we determined fit should be relative to the film back as opposed to in scene space or render space.
-The exact form this takes is still up for discussion...
-
-#### 1. A "fit" token
-Applications like Autodesk Maya use a fit heuristic to make it easy for artists to describe how to position the image
-on the film back.
-  "horizontal" - fit image width to filmback and keep image aspect ratio
-  "vertical"- fit image height to filmback and keep image aspect ratio
-  "fill" - stretched to filmback
-  "to size" - constant size, centered on filmback, and requiring more data to define "image size" and then further 
-  describe positioning
-
-#### 2. Corner coordinates
-An array of image corner coordinates that will allow any manipulations of scale and shearing to be done
-on the image. We add a rotate parameter, but we could also split out scale and keystone if we want to handle
-those specifically.
-
-#### 3. Position + Rotation + Scale
-Fit could also be described with:
-- float[2] position = (0,0) *Lower left coordinate of film back* 
-- float[3] rotation = (0, 0, 0) *Rotate the image plane in any xyz direction*
-- float[2] scale = (1.0, 1.0) *Scale image in x and y, these would probably be relative to film back size*
-
-## Out of Scope: $F Frame token proposal
-Image planes in USD beg the question of movies and image planes in USD to avoid repetitively described file paths for
-frame samples. Look for that in a separate proposal
