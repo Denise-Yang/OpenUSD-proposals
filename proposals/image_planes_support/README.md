@@ -121,10 +121,18 @@ def Xform "world" {
 ## DCC Interchange
 Here we list the image plane features of [Maya](https://help.autodesk.com/view/MAYAUL/2025/ENU/?guid=GUID-E2490B87-087E-476A-9C1D-A917D009001A), [Blender](https://docs.blender.org/manual/en/latest/modeling/meshes/import_images_as_planes.html), [Composure](https://dev.epicgames.com/documentation/en-us/unreal-engine/composure#plate), [Renderman](https://rmanwiki-26.pixar.com/space/REN26/19661891/PxrImageDisplayFilter), and [Nuke](https://www.nukepedia.com/tools/gizmos/3d/imageplane3d/) ([another impl](https://www.nukepedia.com/tools/gizmos/3d/imageplane/)) and call out the features that we will not support with this proposal. 
 
-| First Header  | Maya | Blender |
-| ------------- | ------------- | ------------- |
-| DCC Features  |  - color grading controls - camera visibility modes  - alpha channels  - luminance  - various modes to fit the image plane onto the camera frame - frame cropping and offsets - non-camera associated image planes  - supports images, animation, and media  | v  |
-| Interchange with USD  | Content Cell  | vr  | 
+| First Header  | Maya | Blender | Nuke |
+| ------------- | ------------- | ------------- | ------------- | 
+| DCC Features  |  - color grading controls - camera visibility modes  - alpha channels  - luminance  - various modes to fit the image plane onto the camera frame - frame cropping and offsets - non-camera associated image planes  - supports images, animation, and media  |     different types of shading: emission, shadeless, and their BSDF shader
+    different render methods: forward vs deferred
+    back face culling
+    alpha channel support
+    various modes to fit the image plane onto the camera frame
+    always camera facing toggle
+    grouping multiple image planes at once
+    supports images and animation  |     choose reference frame + reference camera
+    supports images and animation  |
+| Interchange with USD  | :warning: Maya supports standard image planes as well as free image planes, which are image planes not associated with a camera. We've observed that the standard use cases for this seem to be a modeling reference, and it is suggested that this specific image plane would be better represented as a texture card.  | Our image planes will not be emissive, thus we will only support Blender's shadeless shader option.  | 
 
 ## Engineering Work
 
