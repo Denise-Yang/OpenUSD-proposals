@@ -8,9 +8,9 @@
 - [Proposal](#proposal)
   - [Why Separate Schemas?](#why-separate-schemas?)
   - [Properties](#properties)
-- [Hydra Implementation](#hydra-implementation)
-- [Alternative Implementation Strategies](#alternative-implementation-strategies)
-- [Open Questions](#open-questions)
+- [Engineering Work](#engineering-work)
+- [Out of Scope](#out-of-scope)
+- [Alternate Implementations](#alternate-implementations)
 
 ## Background
 
@@ -93,46 +93,62 @@ Other considerations that will not be included:
 - SetBackPlates([])
 - GetBackPlates()
 
-#### A Minimum Usage Example:
-```
-camera = stage.GetPrimAtPath('/world/cam')
-backPlateApi = UsdGeomBackPlateAPI(camera)
-backPlateApi.CreateBackPlate("backPlate1")
-framesToImages = [(f, fileSequence.frameAt(i) for f in fileSequence.frames()]
-imagePlaneApi.SetImagePlaneImageAttr(framesToImages, "backPlate1")
-```
-##### Which would generate this .usda:
-```
-def Xform "world" {
-    def Camera "cam" (        
-        apiSchemas = ["UsdGeomImagePlaneAPI:imagePlane1"]
-    ){
-        ...
-        string[] imagePlanes = ["imagePlane1"]
-        asset imagePlane1:image = {
-            1001: @/path/to/image.1001.exr@, 
-            1002:...
-            }
-        float imagePlane1:depth = 1000.0
-    }
-}
-```
+### DCC Interchange
+Here we list the image plane features of [Maya](https://help.autodesk.com/view/MAYAUL/2025/ENU/?guid=GUID-E2490B87-087E-476A-9C1D-A917D009001A), [Blender](https://docs.blender.org/manual/en/latest/modeling/meshes/import_images_as_planes.html), [Composure](https://dev.epicgames.com/documentation/en-us/unreal-engine/composure#plate), [Renderman](https://rmanwiki-26.pixar.com/space/REN26/19661891/PxrImageDisplayFilter), and [Nuke](https://www.nukepedia.com/tools/gizmos/3d/imageplane3d/) ([another impl](https://www.nukepedia.com/tools/gizmos/3d/imageplane/)) and call out the level of support we have for certain features. 
 
-## DCC Interchange
-Here we list the image plane features of [Maya](https://help.autodesk.com/view/MAYAUL/2025/ENU/?guid=GUID-E2490B87-087E-476A-9C1D-A917D009001A), [Blender](https://docs.blender.org/manual/en/latest/modeling/meshes/import_images_as_planes.html), [Composure](https://dev.epicgames.com/documentation/en-us/unreal-engine/composure#plate), [Renderman](https://rmanwiki-26.pixar.com/space/REN26/19661891/PxrImageDisplayFilter), and [Nuke](https://www.nukepedia.com/tools/gizmos/3d/imageplane3d/) ([another impl](https://www.nukepedia.com/tools/gizmos/3d/imageplane/)) and call out the features that we will not support with this proposal. 
+:white_check_mark:: Fully supported
 
-| First Header  | Maya | Blender | Nuke |
-| ------------- | ------------- | ------------- | ------------- | 
-| DCC Features  |  - color grading controls - camera visibility modes  - alpha channels  - luminance  - various modes to fit the image plane onto the camera frame - frame cropping and offsets - non-camera associated image planes  - supports images, animation, and media  |     different types of shading: emission, shadeless, and their BSDF shader
-    different render methods: forward vs deferred
-    back face culling
-    alpha channel support
-    various modes to fit the image plane onto the camera frame
-    always camera facing toggle
-    grouping multiple image planes at once
-    supports images and animation  |     choose reference frame + reference camera
-    supports images and animation  |
-| Interchange with USD  | :warning: Maya supports standard image planes as well as free image planes, which are image planes not associated with a camera. We've observed that the standard use cases for this seem to be a modeling reference, and it is suggested that this specific image plane would be better represented as a texture card.  | Our image planes will not be emissive, thus we will only support Blender's shadeless shader option.  | 
+:warning:: Supported but with restrictions
+
+:construction:: Future work
+#### Maya
+- Color grading controls
+- Camera visibility modes
+- Alpha and depth support depth maps
+- Luminance
+- Various modes to fit the image plane onto the camera frame / frame cropping and offset controls
+- Non-camera associated image planes
+- Supports images, animation, and media
+
+:warning: Maya supports standard image planes as well as free image planes, which are image planes not associated with a camera. We've observed that the standard use cases for this seem to be a modeling reference, and it is suggested that this specific image plane would be better represented as a texture card.
+
+:construction: We will not support displaying image planes on media in our initial implementation.
+#### Blender
+- Different types of shading: emission, shadeless, and their [BSDF]() shader
+- Different render methods: forward vs deferred, back face culling, 
+- Alpha channel support
+- Various modes to fit the image plane onto the camera frame
+- Always camera facing toggle
+- Grouping multiple image planes at once
+- Supports images and animation
+
+:warning: Our image planes will not be emissive, thus we will only support Blender's shadeless shader option.
+
+:warning: A group of image planes via Blender will correspond to individual back plates in USD. When exporting to USD you will lose the image plane grouping. Although you could implement some sort of grouping mechanism via metadata.
+#### Composure
+- Media pass: pre-processing passes applied before rendering i.e. anti-aliasing, OCIO
+- Layer pass:post-processing passes before the plate is integrated with other layers i.e. adding/subtracting/masking layers etc.
+- Different compositing modes to allow the layer pass to sample from either a custom render pass or the texture directly after the media passes
+- Supports images and media
+
+:warning: The layer passes, and anti aliasing media passes will be composited before being written back to USD.
+
+:warning: Our color and transform controls can correspond to Composure's color keying/scaling correcting media passes; however we will not support a full extent of color transformations to the extent of OCIO.
+
+:construction: We will not support displaying image planes on media in our initial implementation.
+
+#### Nuke
+Choose reference frame + reference camera, supports images and animation
+
+:white_check_mark: This should be relatively straightforward with our current schema.
+#### Renderman
+- 2D translation, scale, and rotation controls
+- Alpha channel support
+- Various modes to fit the image plane onto the camera frame
+- Color gain, offset, and linearization
+- Supports shadow AOVs
+
+:construction: We are aiming to support the use of image planes pre and mid render. Adding means to support additional post render passes like shadow AOVs are out of scope. 
 
 ## Engineering Work
 
@@ -142,24 +158,14 @@ Here we list the image plane features of [Maya](https://help.autodesk.com/view/M
 - In order to integrate back plates in Hydra, such that it can be rendered in Usdview, we will be defining a filtering scene index to identify back plates in the scene and produce camera associated texture cards for the renderer to process. Scene filters exists as an intermediary step between HdSceneIndices and HdSceneIndexObservers that can accept scene updates and transform/modify those updates to the next filtering scene index or renderer. For our use cases, a part of these transformations can include any color/depth information updates.
 - Image planes on the other hand need to be incorporated after rendering. Generating and rearranging Hydra tasks is one option, however it would be complex and is not recommended since the HdTask interface for Hydra 2.0 is still being developed. Instead, one option would be to create a filtering scene index that converts the necessary data to composite the image plane into hydra prims and then the render index will use that data to apply the specified compositions in a render pass. Note that the exact solution is very render specific.
 
-Ideas:
-- Use UsdPreviewSurface textures in a way similar to GeomModel texture cards.
-- Do the compositing in an Hdx post task
-
-## Risk, Issues, and Caveats
-Out of Scope
-
+## Out of Scope
 - **Projection painting**: i.e. enabling users to paint textures onto some geometry is used by ILM for their Mars/Commodore system and also frequently used in gaming as decals. While it would be useful to include this feature, it should be part of the shading system since the painted texture would need to be exported as a material or primvar that the shader node can consume. In our shading pipeline we associate cameras with the projection setup and part of the model build extracts the static xform and stamps it out as a primvar that the shader node can consume.
 - **Adding additional render passes**: in order to support image planes, we would need to apply its properties in a post-procesing stage which most likely entails specifying additional render passes in the renderer. It may be possible to create a scene index that wraps the properties that a render index can then detect and apply as a separate render pass; however this method would be very render specific and dependent. The other option is to hold off until more work has been done to improve HdTask's interface in Hydra 2.0 to allow us to generate additional Hydra tasks for an additional render pass.
 - **Full compositing graph**: while we do want to support interchange with Composure; this would also likely involve investigating how USD render passes can be used to achieve a similar affect to Composure's layer passes.
 - **Displaying media**: USD currently does not support media inputs although when that feature is available we will enable back plates and image planes to display media.
 
-## Use Cases
-### Hydra / Usdview
-It would be helpful to be able to view CG elements against a backdrop of the production plate when checking exported usd caches.
-
 ## Alternative Implementation Strategies
-### 1.) As a concrete prim type
+### 1. Concrete prim type
 Here is a working implementation that was done before Multi-Apply schemas were added to USD.
 
 It's a fully featured solution that is based around Autodesk Maya's "underworld" image plane nodes where many planes 
